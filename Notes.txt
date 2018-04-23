@@ -1,0 +1,235 @@
+Found the Admin window module in includes\extmodules\tax_classes
+
+Copied these files [see below] to a new folder: includes\extmodules\State_ZIPs
+
+	main.php
+	tax_classes_dialog.php
+	tax_classes_grid.php
+	tax_classes_main_panel.php
+	tax_rates_dialog.php
+	tax_rates_grid.php
+	
+For identity's sake, and the posibility that TomatoCart uses naming conventions for identifiers, I renamed these files as such:
+
+	main.php
+	State_ZIPs_dialog.php
+	State_ZIPs_grid.php
+	State_ZIPs_main_panel.php
+	ZIP_rates_dialog.php
+	ZIP_rates_grid.php
+
+Added define('TABLE_STATE_ZIPS', DB_TABLE_PREFIX . 'state_zips'); to store\includes\database_tables.php
+	
+Started by opening main.php and identifying key elements that would need to be changed for our new dialog:
+
+	Ext.namespace("Toc.tax_classes");  ->  Ext.namespace("Toc.State_ZIPs");
+	Changed all of the include filenames to match our new names listed above.
+	Ext.override(TocDesktop.TaxClassesWindow, {  ->  Ext.override(TocDesktop.StateZIPsWindow, {
+	var win = desktop.getWindow('tax_classes-win');  ->  var win = desktop.getWindow('State_ZIPs-win');
+	pnl = new Toc.tax_classes.TaxClassesMainPanel({owner: this});  ->  pnl = new Toc.State_ZIPs.StateZIPsMainPanel({owner: this});
+	id: 'tax_classes-win',  ->  id: 'State_ZIPs-win',
+	iconCls: 'icon-tax_classes-win',  ->  iconCls: 'icon-State_ZIPs-win',
+	createTaxClassesDialog: function() {  ->  createStateZIPsDialog: function() {
+	var dlg = desktop.getWindow('tax-class-dialog-win');  ->  var dlg = desktop.getWindow('State-ZIPs-dialog-win');
+	dlg = desktop.createWindow({}, Toc.tax_classes.TaxClassesDialog);  ->  dlg = desktop.createWindow({}, Toc.State_ZIPs.StateZIPsDialog);
+	createTaxRatesDialog : function() {  ->  createZIPRatesDialog : function() {
+	 var dlg = desktop.getWindow('tax-rate-dialog-win');  ->   var dlg = desktop.getWindow('ZIP-rates-dialog-win');
+	 dlg = desktop.createWindow({},Toc.tax_classes.TaxRatesDialog);  ->  dlg = desktop.createWindow({},Toc.State_ZIPs.ZIPRatesDialog);
+	 
+Add module to TomatoCart:
+
+	Place self-named file in: includes\modules\access (used tax_classes.php in this directory as a reference)
+	
+Title File
+
+	includes\languages\en_US\modules\access
+	
+File Definitions:
+
+	\includes\langauges\en_US
+	
+Data Access Declarations:
+
+	\includes\jsons
+	
+ComboBox Information
+
+	The ComboBoxes are built with a "cbo" prefix, IE: cboCountries
+	The label for the combobox is derived from \includes\langugages\en_US  IE: field_country = Country:
+	The call for this is in the PHP file: IE: <?php echo $osC_Language->get("field_country"); ?>
+	
+	In this example, the combobox pulls from store: dsCountries
+	The store was built previously in the PHP files in the 'build' function
+	
+	JSON_READER_ROOT == 'records'
+	JSON_READER_TOTAL == 'total'
+	
+	jsons file is taking the database and returning it in json format in the 'encode($response)' form.
+	
+	ComboBox populates data from 'store', example uses a store built previously 'dsCountries'
+	
+	Here is the example coding from ExtJS website for a ComboBox:
+	
+			// The data store containing the list of states
+			var states = Ext.create('Ext.data.Store', {
+			fields: ['abbr', 'name'],
+			data : [
+				{"abbr":"AL", "name":"Alabama"},
+				{"abbr":"AK", "name":"Alaska"},
+				{"abbr":"AZ", "name":"Arizona"}
+			]
+			});
+
+			// Create the combo box, attached to the states data store
+			Ext.create('Ext.form.ComboBox', {
+				fieldLabel: 'Choose State',
+				store: states,
+				queryMode: 'local',
+				displayField: 'name',
+				valueField: 'abbr',
+				renderTo: Ext.getBody()
+			});
+	
+	We can use this to see how the data is visually formatted and help parse the TomatoCart code.
+	
+	Here is a breakdown from ExtJS on how a data.Store is built:
+	
+			// Set up a model to use in our Store
+			 Ext.define('User', {
+				 extend: 'Ext.data.Model',
+				 fields: [
+					 {name: 'firstName', type: 'string'},
+					 {name: 'lastName',  type: 'string'},
+					 {name: 'age',       type: 'int'},
+					 {name: 'eyeColor',  type: 'string'}
+				 ]
+			 });
+
+			 var myStore = Ext.create('Ext.data.Store', {
+				 model: 'User',
+				 proxy: {
+					 type: 'ajax',
+					 url: '/users.json',
+					 reader: {
+						 type: 'json',
+						 rootProperty: 'users'
+					 }
+				 },
+				 autoLoad: true
+			 });
+	
+	**** SOMETHING IN THE action: description is TomatoCart is removing the underscore, and capitalizing the first letter: IE: list_countries runs function(listCountries) ****
+	SOLVED: json.php uses:
+	
+		 $action = $_REQUEST['action'];
+        
+        //process action
+        $words = explode('_', $action);
+        $action = $words[0];
+        if (sizeof($words) > 1) {
+          for($i = 1; $i < sizeof($words); $i++)  
+            $action .= ucfirst($words[$i]);
+        }
+		
+	This code is processing the original request (list_countries) and then converting it by breaking-up the string into individual words with the "_" deliminator and appending each word to the first using the "ucfirst" (UpperCase First) function to capitalize the first letters.
+	
+	So, let's begin plotting the idea for our tool:
+	
+	Dialog Box -> module: 'State_ZIPs', action: 'list_countries' -> Executes listCountries in jsons\State_ZIPs.php ->
+		Current function in zone_groups.php builds the record with country_id: 0, countries_name: 'all countries' first and then appends each entry from 'table_countries' to the record in the same format (country_id: [id], country_name: [name]) ->
+		Adds to dataStore. -> Build new comboBox using this dataStore as the 'store' value.
+		
+		IMPORTANT: Make sure to add listener information
+		
+	ICON:  Had to add icon 'zips.png' to default template folder in images/icons/16x16 and 48x48. Must then modify three different .css files to get icon to appear in Admin console.
+	
+State ZIPs dialog grid will need to show:  State	|	Country	|	| Base Sales Tax | Total # of Entries	| Edit/Delete buttons
+										State:  DB TABLE: toc_zones - State (hidden zone_id) get zone_country_id to pull Country
+										Country:  DB_TABLE: toc_countries - search column countries_id for the zone_country_id pulled from the State entry.
+										Tax:	Store/Get base sales tax for this state. (Can be 0% if none.)
+										Total:	Will need to connect to linked table and count # of lines for state's zone_id. (Can be 0)
+										Edit/Delete:  Associated action functions - will need to make sure these affect items from linked table too.
+										
+						Table setup:	toc_state_zips - "state_zip_id" [Integer / Auto Increment / Primary Key], "State_ID" [Integer], "Country_ID" [Integer], "Tax" [Decimal]
+										toc_zip_rates - "State_ID" [Integer], "ZIP" [Integer], "Name" [String], "Tax" [Decimal], "Total Tax" [Decimal] (Add to State Base Tax (if exists) <- Can use ZIP as unique ID for reference.
+										
+DEALING WITH TABLES in MySQL :: store\includes\database_tables.php stores all of the name references used in the codes for table references. Adding references for our new tables.
+
+Trying to find out where $_REQUEST['geo_zone_id'] is being sent from in zone_groups.php to help with our code.
+	It must be sent from whatever calls the function it is in: listZoneEntries()
+	We know from previous code this is translated through the jsons file, so the call will be 'list_zone_entries'.
+	This is being called from zone_entries_grid.php from the Toc.zone_groups.ZoneEntriesGrid function. Passed in through the 'config' asset, perhaps? We'll see what's calling ZoneEntriesGrid...
+		Suspicious about 'geo_zone_entries' from zone_groups_main_panel.php... seeing where this cross-references.
+	Check for iniGrid(record) function sent in zone_groups_main_panel.php instead...
+	This is defined in zone_entries_grid.php...
+	Looks like it breaks down the record grabbed from the groups selection... geo_zone_id becomes this.geoZoneId, geo_zone_name becomes this.geoZoneName, then stores this.geoZoneId into the store.baseParams... in this example, store.baseParams['geo_zone_id'].
+	Assuming this is the id used to grab the record seen in $_REQUEST. Applying to State_ZIP grid functions to test...
+	DISCOVERED the trick: use the item you want to get in 'record.get' (I.E. 'State_ID') and the id for the dataSet in the baseParams that you are pulling from. (I.E. 'State_ZIP_id')
+	
+	USE:
+	
+		Source dataSet:
+		
+			config.ds = new Ext.data.Store({
+			url: Toc.CONF.CONN_URL,
+			baseParams: {
+			  module: 'State_ZIPs',
+			  action: 'list_State_ZIPs'        
+			},
+			reader: new Ext.data.JsonReader({
+			  root: Toc.CONF.JSON_READER_ROOT,
+			  totalProperty: Toc.CONF.JSON_READER_TOTAL_PROPERTY,
+			  id: 'State_ZIP_id'
+			},[
+			  'State_ID',
+			  'State_ZIP_id',
+			  'State_ZIP_title',
+			  'State_country',
+			  'State_base_tax',
+			  'State_entry_count'
+			]),
+			autoLoad: true
+		  });
+		  
+		iniGrid to pull the value we want:
+		
+			iniGrid: function(record) {
+			this.StateZIPId = record.get('State_ID');
+			var store = this.getStore();
+			
+			store.baseParams['State_ZIP_id'] = this.StateZIPId;  								
+			store.load();  
+			},
+			
+SUCCESS: Window is now populating test data in the State area and the ZIP entry area.
+	
+State ZIPs area - Add / Edit / Delete fields complete.
+
+Modified code so that ZIP rate Add/Edit/Delete and Batch Delete buttons all work.
+
+Verified against live database that:
+	State Fields:
+		- Can successfully add Zones into State list with Country tagged and a base State Rate appended. Entry adds # of ZIPs listed for this item.
+		- Refresh button forces refresh of most current data.
+		- Selecting an entry forces a change in the ZIP Rates field with the applicable data for this state.
+		- Edit button puts selected state's data into the forced dialog box that opens.
+			- Saving an Edited State does not update the database, but writes a new line to database. [NEED TO FIX]
+			- Close closes the dialog.
+		- Delete button deletes the corresponding State along with any ZIP rate children that were created.
+		
+	ZIP Rates:
+		- Add button creates Dialog to add ZIP Rates to the list of States given (already in State List ONLY).
+		- Delete (top row) deletes any checked ZIP Rates in the list.
+		- Refresh updates the entire box.
+		- Header bar checkbox selects all items in the list.
+		- Selecting an entry marks the checkbox.
+		- Edit button opens ZIP rate dialog from the database.
+			- Saving updates correct database entry and closes the dialog while updating the boxes for the most current information.
+			- Close closes the dialog and stops changes.
+		- Delete button erases the entry from the zip_rates database.
+		
+NOTES: Everything is finished, just need to fix the Edit dialog for the State ZIPs box.
+
+Fixed issue with State field's Edit button not updating the correct entry in the database. This is now working properly.
+
+WDF530PLYW0
