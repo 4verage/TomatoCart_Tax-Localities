@@ -22,3 +22,12 @@ The module will need to be able to accept city listings and/or ZIP code listings
 A module will then need to be programmed to be accepted by the admin console so we can use the admin mode to add, delete, and arrange localities at will using the qWikiOffice interface.
 
 Programming will then need to be done so we can inject the taxes into the cart during transactions.
+
+# Admin Module
+4/22/2018
+
+Work on the Admin module for the State Tax plug-in is complete. All functions have been tested and the code has been added to the Github repository.
+
+Other files may have been changed, the plug-in will need to get used and we will ammend and/or add files as comments come in, requests are made, or code is submitted by users. 
+
+Once all code is complete - Admin and Client side - my intention is to create an easy-to-use installer for the module so users don't need to hunt around their directories for the right places to put files.
