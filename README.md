@@ -31,3 +31,8 @@ Work on the Admin module for the State Tax plug-in is complete. All functions ha
 Other files may have been changed, the plug-in will need to get used and we will ammend and/or add files as comments come in, requests are made, or code is submitted by users. 
 
 Once all code is complete - Admin and Client side - my intention is to create an easy-to-use installer for the module so users don't need to hunt around their directories for the right places to put files.
+
+# Client Usage
+4/30/2018
+
+Uploaded changed Tomatocart Files to make new tax method work in order totalling. See Notes.txt for further information.
