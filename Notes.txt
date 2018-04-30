@@ -233,3 +233,232 @@ NOTES: Everything is finished, just need to fix the Edit dialog for the State ZI
 Fixed issue with State field's Edit button not updating the correct entry in the database. This is now working properly.
 
 WDF530PLYW0
+
+CLIENT SIDE
+
+Taxes are calculated using the order_total module. This module is on the store side and the admin side, so pay close attention when editing to make sure the correct file is being modified.
+
+ajax_shopping_cart.php opens order_total
+
+		//order totals
+		$order_totals = array();
+		foreach ($osC_ShoppingCart->getOrderTotals() as $module) {
+			$order_totals[] = array('title' => $module['title'], 'text' => $module['text']);
+		}
+      
+		$cart['orderTotals'] = $order_totals;
+		
+shopping_cart.php defines 'osC_OrderTotal', or suffix '_order_totals' as 'includes/classes/order_total.php
+
+order_total.php loops through each module and checks to see if its enabled variable is set to "true". If so, runs it when calculating.
+Gets:  $this->_data[] = array('code' => $GLOBALS[$module]->getCode(),
+                              'title' => $output['title'],
+                              'text' => $output['text'],
+                              'value' => $output['value'],
+                              'tax' => ($post_total - $pre_total - $output['value']),
+                              'sort_order' => $GLOBALS[$module]->getSortOrder());
+							  
+shopping_cart.php puts this data into the $this->_order_totals variable. We should output this variable to see what the script is returning.
+
+What is happening is essentially, [Get Customer Zone] -> [Is Tax Enabled?] -> [Get items in Tax Groups] -> [Get applicable tax for that item if customer's Zone is listed in that group] -> [add to total]
+
+So, let's search for each specific step...
+	1.) Get Customer's Zone:	
+								billing_address_details.php generates for user form for entering the billing address.
+								The specific drop-down used is named 'billing_state'.
+								'Continue' button calls the btnSaveBillingInformation function in includes\javascript\checkout.js which then executes this.btnSaveBillingInformationClick.
+								This action executes saveBillingAddress in includes\modules\jsons\checkout.php
+								If any zones exist for that state, checkout.php processes it...
+								Gets set as $data['state']
+								Sends $data to ShoppingCart->setRawBillingAddress($data)
+								Shopping cart assigns $data variables to the _billing_address variable.
+								Then calls function this->_calculate()
+								_calculate sets the tax as: $tax = $osC_Tax->getTaxRate($data['tax_class_id'], $this->getTaxingAddress('country_id'), $this->getTaxingAddress('zone_id'));
+															$tax_description = $osC_Tax->getTaxRateDescription($data['tax_class_id'], $this->getTaxingAddress('country_id'), $this->getTaxingAddress('zone_id'));
+								Data is first gathered back in shopping_cart.php in getTaxingAddress(array identifier you are seeking (I.E. 'state'))
+								getTaxingAddress('state') will return getBillingAddress('state'), or getShippingAddress('state') depending on options...
+								getBillingAddress will return this->_billing_address('state')
+								This successfully returns the address element we are looking for, in this case, the customer's zone - 'zone_id'
+								
+	2.) Is Tax Enabled?:		See above line: $tax = $osC_Tax->getTaxRate($data['tax_class_id'], $this->getTaxingAddress('country_id'), $this->getTaxingAddress('zone_id'));
+								The variable, $data['tax_class_id']
+								If a shopping cart item does not have a matching 'TAX CLASS', getTaxRate will return a $tax_rate of 0, or "no tax" (essentially).
+								This calls $osC_Currencies (inclues\classes\Currencies.php) addTaxRatetoPrice.
+								If tax_rate is greater than 0, it adds the amount and inserts a line for the tax, else, nothing is done, essentially disabling the tax.
+								
+	3.) Get items in Tax Groups:	If you reference the same 'getTaxRate' from above, the first 'tax_class_id' used to measure the tax gathers this information. Nothing more is needed.
+	
+	4.) Get applicable tax		The getTaxRate call from before does all of this by the class_id.
+	
+	5.) Add to total			The call to $osC_Currencies adds the tax line and amount to our order total.
+	
+Now we know how it works. We'll need to tailor all of this to work by ZIP instead!
+
+Proposal:
+
+	Our module allows us to create an entirely new series of data based on ZIP codes that provide tax data.
+	This tax data is added on top of what we define as a "state base tax" by country/state.
+	Luckily, Currencies already does the math for us when adding multiple taxes. Let's do this:
+	
+			billing_address_details already gathers the customer's ZIP.
+			Line 173 in checkout.php begins the gathering for POST_CODE and this gets saved into $data['postcode'] from $_REQUEST['billing_postcode']
+			This eventually gets sent to _caculate, this is where coding will need to begin to change.
+			
+				getTaxRate (in tax.php) will need to gather all products that have a tax key that applies tax (this is setup per product).
+				It will then need to scan table_zip_rates for the provided ZIP code.
+				If found, we need to get the tax rate for this ZIP and then also get the base state tax for the state it belongs too (if any.)
+				If not found, we need to get the user's entered state and just apply the base state tax (if any).
+				If not, return 0.
+								
+Cataloged Changes:
+
+			LN: 1279, under: function _calculate, includes\classes\shopping_cart.php, 
+						$tax = $osC_Tax->getTaxRate($data['tax_class_id'], $this->getTaxingAddress('country_id'), $this->getTaxingAddress('zone_id'));
+						$tax = $osC_Tax->getTaxRate($data['tax_class_id'], $this->getTaxingAddress('postcode'), $this->getTaxingAddress('zone_id'));
+						
+						NOTES: This will pass our ZIP code to tax.php now.
+						
+			LN: 23	, under: //class methods,
+						function getTaxRate($class_id, $country_id = -1, $zone_id = -1) {
+						function getTaxRate($class_id, $ZIP = -1, $zone_id = -1) {
+						
+			LN: 26:		if ( ($country_id == -1) && ($zone_id == -1) ) {
+						if ( ($ZIP == -1) && ($zone_id == -1) ) {
+						
+			LN: 27:		$country_id = $osC_ShoppingCart->getTaxingAddress('country_id');
+						$ZIP = $osC_ShoppingCart->getTaxingAddress('ZIP');
+						
+			LN: 31:		if (isset($this->tax_rates[$class_id][$country_id][$zone_id]['rate']) == false) {
+						if (isset($this->tax_rates[$class_id][$ZIP][$zone_id]['rate']) == false) {
+						
+			LN: 32-47:	REMOVE:
+			
+							$Qtax = $osC_Database->query('select sum(tax_rate) as tax_rate from :table_tax_rates tr left join :table_zones_to_geo_zones za on (tr.tax_zone_id = za.geo_zone_id) left join :table_geo_zones tz on (tz.geo_zone_id = tr.tax_zone_id) where (za.zone_country_id is null or za.zone_country_id = 0 or za.zone_country_id = :zone_country_id) and (za.zone_id is null or za.zone_id = 0 or za.zone_id = :zone_id) and tr.tax_class_id = :tax_class_id group by tr.tax_priority');
+							$Qtax->bindTable(':table_tax_rates', TABLE_TAX_RATES);
+							$Qtax->bindTable(':table_zones_to_geo_zones', TABLE_ZONES_TO_GEO_ZONES);
+							$Qtax->bindTable(':table_geo_zones', TABLE_GEO_ZONES);
+							$Qtax->bindInt(':zone_country_id', $country_id);
+							$Qtax->bindInt(':zone_id', $zone_id);
+							$Qtax->bindInt(':tax_class_id', $class_id);
+							$Qtax->execute();
+
+							if ($Qtax->numberOfRows()) {
+							  $tax_multiplier = 1.0;
+							  while ($Qtax->next()) {
+								$tax_multiplier *= 1.0 + ($Qtax->value('tax_rate') / 100);
+							  }
+
+							  $tax_rate = ($tax_multiplier - 1.0) * 100;
+							  
+			LN:	32:		INSERT:
+			
+							var $ZIPs = false;
+							var $States = false;
+							var $Taxable = false;
+			
+							$ZIPtax = $osC_Database->query('select Tax from :table_zip_rates WHERE ZIP = :ZIP');
+							$ZIPtax->bindTable(':table_zip_rates', TABLE_ZIP_RATES);
+							$ZIPtax->bindInt(':ZIP', $ZIP);
+							$ZIPtax->execute();
+							
+							if ($ZIPtax->numberOfRows() > 0) {
+								$ZIPs = true;	
+							} 
+								
+							$StateCheck = $osC_Database->query('select Tax from :table_state_zips WHERE State_ID = :zone_id');
+							$StateCheck->bindTable(':table_state_zips', TABLE_STATE_ZIPS);
+							$StateCheck->bindInt(':zone_id', $zone_id);
+							$StateCheck->execute();
+							
+							if ($StateCheck->numberOfRows() > 0) {
+								$States = true;	
+							}
+							
+							if ($class_id > 0) {
+								$Taxable = true;
+							}
+							
+							var $taxer = 0;
+							
+							if ($ZIPs == true) {
+								$taxer = $taxer + $ZIPtax->value('Tax');
+							}
+							
+							if ($States == true) {
+								$taxer = $taxer + $StateCheck->value('Tax');
+							}
+							
+							if ($Taxable == true) {
+								$tax_rate = $taxer;
+								
+			LN:	1280:	includes\classes\shopping_cart.php
+							$tax_description = $osC_Tax->getTaxRateDescription($data['tax_class_id'], $this->getTaxingAddress('country_id'), $this->getTaxingAddress('zone_id'));
+							$tax_description = $osC_Tax->getTaxRateDescription($data['tax_class_id'], $this->getTaxingAddress('ZIP'), $this->getTaxingAddress('zone_id'));
+							
+			LN:	58:		includes\classes\tax.php
+			(LN 80 A/E)		function getTaxRateDescription($class_id, $country_id, $zone_id) {
+							function getTaxRateDescription($class_id, $ZIP, $zone_id) {
+							
+			LN:	61:		includes\classes\tax.php
+			(LN 83 A/E)		if (isset($this->tax_rates[$class_id][$country_id][$zone_id]['description']) == false) {
+							if (isset($this->tax_rates[$class_id][$ZIP][$zone_id]['description']) == false) {
+							
+			LN: 32-69:	REMOVE:
+			(LN 84-91 A/E)	$Qtax = $osC_Database->query('select tax_description from :table_tax_rates tr left join :table_zones_to_geo_zones za on (tr.tax_zone_id = za.geo_zone_id) left join :table_geo_zones tz on (tz.geo_zone_id = tr.tax_zone_id) where (za.zone_country_id is null or za.zone_country_id = 0 or za.zone_country_id = :zone_country_id) and (za.zone_id is null or za.zone_id = 0 or za.zone_id = :zone_id) and tr.tax_class_id = :tax_class_id group by tr.tax_priority');
+							$Qtax->bindTable(':table_tax_rates', TABLE_TAX_RATES);
+							$Qtax->bindTable(':table_zones_to_geo_zones', TABLE_ZONES_TO_GEO_ZONES);
+							$Qtax->bindTable(':table_geo_zones', TABLE_GEO_ZONES);
+							$Qtax->bindInt(':zone_country_id', $country_id);
+							$Qtax->bindInt(':zone_id', $zone_id);
+							$Qtax->bindInt(':tax_class_id', $class_id);
+							$Qtax->execute();
+							
+			LN: 62:		INSERT:
+			(LN 84 A/E)		$ZIPtax = $osC_Database->query('select Name from :table_zip_rates WHERE ZIP = :ZIP');
+							$ZIPtax->bindTable(':table_zip_rates', TABLE_ZIP_RATES);
+							$ZIPtax->bindInt(':ZIP', $ZIP);
+							$ZIPtax->execute();
+			ALL TAGS 
+			AFTER EDIT NOW
+			
+			LN:	89:		includes\classes\tax.php
+							if ($Qtax->numberOfRows()) {
+							if ($ZIPtax->numberOfRows()) {
+							
+			LN: 90:		includes\classes\tax.php
+							$tax_description = '';
+							$zip_description = $ZIPtax->value('Name');
+							
+			LN: 91-94:	REMOVE:
+											
+						  while ($Qtax->next()) {
+							$tax_description .= $Qtax->value('tax_description') . ' + ';
+						  }
+						  
+			LN: 88:		INSERT:
+			
+							$STATEabbrv = $osC_Database->query('select zone_code from :table_zones WHERE zone_id = :zone_id');
+							$STATEabbrv->bindTable(':table_zones', TABLE_ZONES);
+							$STATEabbrv->bindInt(':zone_id', $zone_id);
+							$STATEabbrv->execute();
+
+							$STATEtax = $osC_Database->query('select Tax from :table_state_zips WHERE State_ID = :zone_id');
+							$STATEtax->bindTable(':table_state_zips', TABLE_STATE_ZIPS);
+							$STATEtax->bindInt(':zone_id', $zone_id);
+							$STATEtax->execute();
+							
+							if ($STATEtax->value('Tax') > 0) {
+								$state_description = $STATEabbrv->value('zone_code') . " State Tax";
+								$tax_description = $state_description;
+							
+			LN: 104:	INSERT:
+			
+							if ($ZIPtax->numberOfRows()) {
+							  $zip_description = $ZIPtax->value('Name');
+							  
+							  if ($tax_description && !empty($tax_description)) {
+								$tax_description .= " + " . $zip_description . " Local Taxes";
+							  } else {
+								$tax_description = $zip_description . " Local Sales Tax";
+							  }
+							}
